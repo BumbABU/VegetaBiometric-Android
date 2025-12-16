@@ -14,9 +14,9 @@ import androidx.core.content.edit
 
 interface CryptographyManager
 {
-    fun getInitializedCipherForEncryption (keyName : String) : Cipher
+    fun getInitCipherForEncrypt (keyName : String) : Cipher
 
-    fun getInitializedCipherForDecryption (keyName: String, initializationVector: ByteArray) : Cipher
+    fun getInitCipherForDecrypt (keyName: String, initializationVector: ByteArray) : Cipher
 
     fun encryptData(plaintext: String, cipher: Cipher): CiphertextWrapper
 
@@ -42,7 +42,7 @@ fun CryptographyManager(): CryptographyManager = CryptographyManagerImpl()
 
 private class CryptographyManagerImpl : CryptographyManager
 {
-    override fun getInitializedCipherForEncryption(keyName: String): Cipher
+    public override fun getInitCipherForEncrypt(keyName: String): Cipher
     {
         val cipher = getCipher()
         val secretKey =  getOrCreateSecretKey(keyName)
@@ -50,7 +50,7 @@ private class CryptographyManagerImpl : CryptographyManager
         return cipher
     }
 
-    override fun getInitializedCipherForDecryption(keyName: String, initializationVector: ByteArray): Cipher
+    public override fun getInitCipherForDecrypt(keyName: String, initializationVector: ByteArray): Cipher
     {
         val cipher = getCipher()
         val secretKey = getOrCreateSecretKey(keyName)
@@ -58,13 +58,13 @@ private class CryptographyManagerImpl : CryptographyManager
         return cipher
     }
 
-    override fun encryptData(plaintext: String, cipher: Cipher): CiphertextWrapper
+    public override fun encryptData(plaintext: String, cipher: Cipher): CiphertextWrapper
     {
         val ciphertext = cipher.doFinal(plaintext.toByteArray(Charset.forName("UTF-8")))
         return CiphertextWrapper(ciphertext, cipher.iv)
     }
 
-    override fun decryptData(
+    public override fun decryptData(
         ciphertext: ByteArray,
         cipher: Cipher
     ): String
@@ -73,7 +73,7 @@ private class CryptographyManagerImpl : CryptographyManager
         return String(plaintext, Charset.forName(("UTF-8")))
     }
 
-    override fun persistCiphertextWrapperToSharedPrefs(
+    public override fun persistCiphertextWrapperToSharedPrefs(
         ciphertextWrapper: CiphertextWrapper,
         context: Context,
         filename: String,
@@ -85,7 +85,7 @@ private class CryptographyManagerImpl : CryptographyManager
         context.getSharedPreferences(filename, mode).edit { putString(prefKey, json) }
     }
 
-    override fun getCiphertextWrapperFromSharedPrefs(
+    public override fun getCiphertextWrapperFromSharedPrefs(
         context: Context,
         filename: String,
         mode: Int,
@@ -97,7 +97,7 @@ private class CryptographyManagerImpl : CryptographyManager
     }
 
     private fun getCipher(): Cipher {
-        val transformation = "$BiometricConstants.ENCRYPTION_ALGORITHM/$BiometricConstants.ENCRYPTION_BLOCK_MODE/$BiometricConstants.ENCRYPTION_PADDING"
+        val transformation = "$Constants.ENCRYPTION_ALGORITHM/$Constants.ENCRYPTION_BLOCK_MODE/$Constants.ENCRYPTION_PADDING"
         return Cipher.getInstance(transformation)
     }
 
@@ -105,7 +105,7 @@ private class CryptographyManagerImpl : CryptographyManager
     {
         // If SecretKey was previously created for that keyName, then grab and return it.
 
-        val keyStore = KeyStore.getInstance(BiometricConstants.ANDROID_KEYSTORE)
+        val keyStore = KeyStore.getInstance(Constants.ANDROID_KEYSTORE)
         keyStore.load(null) // Keystore must be loaded before it can be accessed
         keyStore.getKey(keyName, null)?.let { return it as SecretKey }
 
@@ -115,16 +115,18 @@ private class CryptographyManagerImpl : CryptographyManager
             KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
         )
         paramsBuilder.apply {
-            setBlockModes(BiometricConstants.ENCRYPTION_BLOCK_MODE)
-            setEncryptionPaddings(BiometricConstants.ENCRYPTION_PADDING)
-            setKeySize(BiometricConstants.KEY_SIZE)
-            setUserAuthenticationRequired(true)
+            setBlockModes(Constants.ENCRYPTION_BLOCK_MODE)
+            setEncryptionPaddings(Constants.ENCRYPTION_PADDING)
+            setKeySize(Constants.KEY_SIZE)
+            setUserAuthenticationRequired(true)  // Key unlock only biometrics vetification success
+            // setInvalidatedByBiometricEnrollment(true) // SecretKey automatically invalid when biometrics update ,...
+            //
         }
 
         val keyGenParams = paramsBuilder.build()
         val keyGenerator = KeyGenerator.getInstance(
-            KeyProperties.KEY_ALGORITHM_AES,
-            BiometricConstants.ANDROID_KEYSTORE
+            Constants.ENCRYPTION_ALGORITHM,
+            Constants.ANDROID_KEYSTORE
         )
 
         keyGenerator.init(keyGenParams)
@@ -132,4 +134,4 @@ private class CryptographyManagerImpl : CryptographyManager
     }
 }
 
-data class CiphertextWrapper(val ciphertext: ByteArray, val initializationVector: ByteArray)
+data class CiphertextWrapper(val ciphertext: ByteArray, val initVector: ByteArray)

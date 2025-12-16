@@ -11,7 +11,7 @@ import java.security.KeyStore
 class BiometricLoginManager (private  val context : Context)
 {
     private val cryptographyManager: CryptographyManager = CryptographyManager()
-    private val sharedPreferences: SharedPreferences = context.getSharedPreferences(BiometricConstants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE)
+    private val sharedPreferences: SharedPreferences = context.getSharedPreferences(Constants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE)
 
     fun isBiometricAvailable () : Boolean
     {
@@ -22,12 +22,12 @@ class BiometricLoginManager (private  val context : Context)
     fun isBiometricAvailable2 (): Int {
         val biometricManager = BiometricManager.from(context)
         return when (biometricManager.canAuthenticate(Authenticators.BIOMETRIC_STRONG)) {
-            BiometricManager.BIOMETRIC_SUCCESS -> 0
-            BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> 1
-            BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> 2
-            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> 3
-            BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED -> 4
-            BiometricManager.BIOMETRIC_ERROR_UNSUPPORTED -> 5
+            BiometricManager.BIOMETRIC_SUCCESS -> 0 // Biometrics available and enrolled
+            BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> 1 // No biometric hardware
+            BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> 2 // Biometric hardware unavailable
+            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> 3 // No biometrics enrolled
+            BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED -> 4 // Security update required
+            BiometricManager.BIOMETRIC_ERROR_UNSUPPORTED -> 5 // Biometrics unsupported
             else -> -1
         }
     }
@@ -60,7 +60,7 @@ class BiometricLoginManager (private  val context : Context)
         // Check if key exists in Keystore
         val keyStore = KeyStore.getInstance("AndroidKeyStore")
         keyStore.load(null)
-        val keyExists = keyStore.containsAlias(BiometricConstants.KEY_NAME)
+        val keyExists = keyStore.containsAlias(Constants.KEY_NAME)
 
         if (!keyExists) {
             // "No secret key in Keystore"
@@ -69,7 +69,7 @@ class BiometricLoginManager (private  val context : Context)
 
         // Check if ciphertext exists in SharedPrefs
         val ciphertextWrapper = cryptographyManager.getCiphertextWrapperFromSharedPrefs(
-            context, BiometricConstants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, BiometricConstants.CIPHERTEXT_WRAPPER
+            context, Constants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, Constants.CIPHERTEXT_WRAPPER
         )
 
         if (ciphertextWrapper == null) {
@@ -79,7 +79,7 @@ class BiometricLoginManager (private  val context : Context)
 
         // Optional: Try to init cipher to verify key validity (e.g., not invalidated)
         return try {
-           cryptographyManager.getInitializedCipherForDecryption(BiometricConstants.KEY_NAME, ciphertextWrapper.initializationVector)
+           cryptographyManager.getInitCipherForDecrypt(Constants.KEY_NAME, ciphertextWrapper.initVector)
             true
         } catch (e: Exception) {
              false
@@ -87,10 +87,10 @@ class BiometricLoginManager (private  val context : Context)
     }
 
     fun saveTokenOnFirstLogin(token: String) {
-        val cipher = cryptographyManager.getInitializedCipherForEncryption(BiometricConstants.KEY_NAME)
+        val cipher = cryptographyManager.getInitCipherForEncrypt(Constants.KEY_NAME)
         val ciphertextWrapper = cryptographyManager.encryptData(token, cipher)
         cryptographyManager.persistCiphertextWrapperToSharedPrefs(
-            ciphertextWrapper, context, BiometricConstants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, BiometricConstants.CIPHERTEXT_WRAPPER
+            ciphertextWrapper, context, Constants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, Constants.CIPHERTEXT_WRAPPER
         )
     }
 
@@ -106,7 +106,7 @@ class BiometricLoginManager (private  val context : Context)
 
         // 2. Lấy ciphertext đã lưu
         val ciphertextWrapper = cryptographyManager.getCiphertextWrapperFromSharedPrefs(
-            context, BiometricConstants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, BiometricConstants.CIPHERTEXT_WRAPPER
+            context, Constants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, Constants.CIPHERTEXT_WRAPPER
         )
 
         if (ciphertextWrapper == null) {
@@ -116,7 +116,7 @@ class BiometricLoginManager (private  val context : Context)
 
         // 3. Tạo cipher để giải mã (chỉ dùng được sau khi xác thực sinh trắc học)
         val decryptionCipher = try {
-            cryptographyManager.getInitializedCipherForDecryption(BiometricConstants.KEY_NAME, ciphertextWrapper.initializationVector)
+            cryptographyManager.getInitCipherForDecrypt(Constants.KEY_NAME, ciphertextWrapper.initVector)
         } catch (e: Exception) {
             onFailure("decrypt fail")
             return
