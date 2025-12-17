@@ -3,6 +3,7 @@ package com.vegeta.biometrics
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.Base64
 import java.nio.charset.Charset
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -36,6 +37,8 @@ interface CryptographyManager
         mode: Int,
         prefKey: String
     ): CiphertextWrapper?
+
+    fun hasKeyValid (keyName: String) : Boolean
 }
 
 fun CryptographyManager(): CryptographyManager = CryptographyManagerImpl()
@@ -81,8 +84,13 @@ private class CryptographyManagerImpl : CryptographyManager
         prefKey: String
     )
     {
-        val json = Gson().toJson(ciphertextWrapper)
-        context.getSharedPreferences(filename, mode).edit { putString(prefKey, json) }
+//        val json = Gson().toJson(ciphertextWrapper)
+//        context.getSharedPreferences(filename, mode).edit { putString(prefKey, json) }
+        val prefs = context.getSharedPreferences(filename, mode)
+        prefs.edit()
+            .putString("${prefKey}_ciphertext", Base64.encodeToString(ciphertextWrapper.ciphertext, Base64.DEFAULT))
+            .putString("${prefKey}_iv", Base64.encodeToString(ciphertextWrapper.initVector, Base64.DEFAULT))
+            .apply()
     }
 
     public override fun getCiphertextWrapperFromSharedPrefs(
@@ -90,14 +98,25 @@ private class CryptographyManagerImpl : CryptographyManager
         filename: String,
         mode: Int,
         prefKey: String
-    ): CiphertextWrapper
+    ): CiphertextWrapper?
     {
-        val json = context.getSharedPreferences(filename, mode).getString(prefKey, null)
-        return Gson().fromJson(json, CiphertextWrapper::class.java)
+//        val json = context.getSharedPreferences(filename, mode).getString(prefKey, null)
+//        return Gson().fromJson(json, CiphertextWrapper::class.java)
+        val prefs = context.getSharedPreferences(filename, mode)
+        val ciphertextStr = prefs.getString("${prefKey}_ciphertext", null) ?: return null
+        val ivStr = prefs.getString("${prefKey}_iv", null) ?: return null
+
+        return try {
+            val ciphertext = Base64.decode(ciphertextStr, Base64.DEFAULT)
+            val iv = Base64.decode(ivStr, Base64.DEFAULT)
+            CiphertextWrapper(ciphertext, iv)
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private fun getCipher(): Cipher {
-        val transformation = "$Constants.ENCRYPTION_ALGORITHM/$Constants.ENCRYPTION_BLOCK_MODE/$Constants.ENCRYPTION_PADDING"
+        val transformation = "${Constants.ENCRYPTION_ALGORITHM}/${Constants.ENCRYPTION_BLOCK_MODE}/${Constants.ENCRYPTION_PADDING}"
         return Cipher.getInstance(transformation)
     }
 
@@ -107,7 +126,26 @@ private class CryptographyManagerImpl : CryptographyManager
 
         val keyStore = KeyStore.getInstance(Constants.ANDROID_KEYSTORE)
         keyStore.load(null) // Keystore must be loaded before it can be accessed
-        keyStore.getKey(keyName, null)?.let { return it as SecretKey }
+
+        if (keyStore.containsAlias(keyName)) {
+            val existingKey = keyStore.getKey(keyName, null) as? SecretKey
+            if (existingKey != null) {
+                // Thử init cipher để check key có dùng được không
+                try {
+                    val testCipher = getCipher()
+                    testCipher.init(Cipher.ENCRYPT_MODE, existingKey)
+                    testCipher.doFinal("test".toByteArray(Charset.forName("UTF-8")))
+                    return existingKey // Key cũ vẫn tốt → dùng tiếp
+                } catch (e: Exception) {
+                    // Key cũ bị invalid (do required=true hoặc bị invalidate) → xóa đi
+                    keyStore.deleteEntry(keyName)
+                }
+            } else {
+                keyStore.deleteEntry(keyName)
+            }
+        }
+
+        // keyStore.getKey(keyName, null)?.let { return it as SecretKey }
 
         // if you reach here, then a new SecretKey must be generated for that keyName
         val paramsBuilder = KeyGenParameterSpec.Builder(
@@ -118,7 +156,7 @@ private class CryptographyManagerImpl : CryptographyManager
             setBlockModes(Constants.ENCRYPTION_BLOCK_MODE)
             setEncryptionPaddings(Constants.ENCRYPTION_PADDING)
             setKeySize(Constants.KEY_SIZE)
-            setUserAuthenticationRequired(true)  // Key unlock only biometrics vetification success
+            setUserAuthenticationRequired(false)  // Key unlock only biometrics vetification success
             // setInvalidatedByBiometricEnrollment(true) // SecretKey automatically invalid when biometrics update ,...
             //
         }
@@ -131,6 +169,24 @@ private class CryptographyManagerImpl : CryptographyManager
 
         keyGenerator.init(keyGenParams)
         return keyGenerator.generateKey()
+    }
+
+    public override fun hasKeyValid (keyName: String) : Boolean {
+        val keyStore = KeyStore.getInstance(Constants.ANDROID_KEYSTORE)
+        keyStore.load(null)
+
+        if(!keyStore.containsAlias(keyName)) return false
+
+        /* Try convert to SecretKey if null or can not convert return false */
+        val secretKey = keyStore.getKey(keyName, null) as? SecretKey ?: return false
+
+        return try {
+            val cipher = getCipher()
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 }
 

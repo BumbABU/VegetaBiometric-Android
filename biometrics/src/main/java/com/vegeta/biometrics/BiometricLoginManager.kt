@@ -6,7 +6,13 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators
 import androidx.biometric.BiometricPrompt
 import androidx.fragment.app.FragmentActivity
-import java.security.KeyStore
+import androidx.core.content.edit
+
+object BiometricType {
+    const val FINGERPRINT = 0
+    const val FACE = 1
+    const val IRIS = 2
+}
 
 class BiometricLoginManager (private  val context : Context)
 {
@@ -19,138 +25,184 @@ class BiometricLoginManager (private  val context : Context)
         return biometricManager.canAuthenticate(Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
     }
 
-    fun isBiometricAvailable2 (): Int {
-        val biometricManager = BiometricManager.from(context)
-        return when (biometricManager.canAuthenticate(Authenticators.BIOMETRIC_STRONG)) {
-            BiometricManager.BIOMETRIC_SUCCESS -> 0 // Biometrics available and enrolled
-            BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> 1 // No biometric hardware
-            BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> 2 // Biometric hardware unavailable
-            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> 3 // No biometrics enrolled
-            BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED -> 4 // Security update required
-            BiometricManager.BIOMETRIC_ERROR_UNSUPPORTED -> 5 // Biometrics unsupported
-            else -> -1
-        }
+    /*
+    0 : BiometricManager.BIOMETRIC_SUCCESS (Biometrics available and enrolled)
+    1 : BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE (No biometric hardware)
+    2 : BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE ( Biometric hardware unavailable)
+    3 : BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED (No biometrics enrolled)
+    11: BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED ( Security update required)
+    12: BiometricManager.BIOMETRIC_ERROR_UNSUPPORTED (Biometrics unsupported)
+
+    -1: undefined
+    */
+
+    fun getBiometricStatus (): Int {
+        val  biometricManager = BiometricManager.from(context)
+        return biometricManager.canAuthenticate((Authenticators.BIOMETRIC_STRONG))
     }
 
-    fun getBiometricTypes(): List<Int> {
-        val types = mutableListOf<Int>()
+    fun getAvailableBiometricTypes(): IntArray {
+        val result = mutableListOf<Int>()
+        val pm = context.packageManager
         val biometricManager = BiometricManager.from(context)
 
-        // Check strong biometrics (fingerprint/face)
-        if (biometricManager.canAuthenticate(Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS) {
-            // Note: Android không expose trực tiếp loại cụ thể, nhưng ta có thể infer qua capability
-            // Để chính xác hơn, có thể dùng PackageManager để check FEATURE_FINGERPRINT, FEATURE_FACE, etc.
-            if (context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_FINGERPRINT)) {
-                types.add(0)
-                // Fingerprint Recognition
+        if(biometricManager.canAuthenticate(Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS) {
+            if(pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_FINGERPRINT)) {
+                result.add(BiometricType.FINGERPRINT)
             }
-            if (context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_FACE)) {
-                types.add(1)
-                // Face Recognition
+
+            if(pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_FACE)) {
+                result.add(BiometricType.FACE)
             }
-            if (context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_IRIS)) {
-                types.add(2)
-                // Iris Recognition
+
+            if(pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_IRIS)) {
+                result.add(BiometricType.IRIS)
             }
         }
-        return types
+
+        return result.toIntArray()
     }
 
-    fun hasValidKeyAndToken(): Boolean {
-        // Check if key exists in Keystore
-        val keyStore = KeyStore.getInstance("AndroidKeyStore")
-        keyStore.load(null)
-        val keyExists = keyStore.containsAlias(Constants.KEY_NAME)
-
-        if (!keyExists) {
-            // "No secret key in Keystore"
+    fun hasSecretKeyValid(keyName : String): Boolean {
+        if(cryptographyManager.hasKeyValid(keyName) == false) {
+            sharedPreferences.edit {
+                remove(keyName)
+                apply()
+            }
             return false
         }
-
-        // Check if ciphertext exists in SharedPrefs
-        val ciphertextWrapper = cryptographyManager.getCiphertextWrapperFromSharedPrefs(
-            context, Constants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, Constants.CIPHERTEXT_WRAPPER
-        )
-
-        if (ciphertextWrapper == null) {
-            //"No encrypted token stored"
-            return false
-        }
-
-        // Optional: Try to init cipher to verify key validity (e.g., not invalidated)
-        return try {
-           cryptographyManager.getInitCipherForDecrypt(Constants.KEY_NAME, ciphertextWrapper.initVector)
-            true
-        } catch (e: Exception) {
-             false
-        }
+        return true
     }
 
-    fun saveTokenOnFirstLogin(token: String) {
-        val cipher = cryptographyManager.getInitCipherForEncrypt(Constants.KEY_NAME)
-        val ciphertextWrapper = cryptographyManager.encryptData(token, cipher)
+    fun persistSecureData(keyName: String, data: String) {
+        val cipher = cryptographyManager.getInitCipherForEncrypt(keyName)
+        val ciphertextWrapper = cryptographyManager.encryptData(data, cipher)
         cryptographyManager.persistCiphertextWrapperToSharedPrefs(
-            ciphertextWrapper, context, Constants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, Constants.CIPHERTEXT_WRAPPER
+            ciphertextWrapper, context, Constants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, keyName
         )
     }
 
-    fun loginWithBiometrics(
+//    fun requestSecureData(
+//        keyName : String,
+//        activity: FragmentActivity,
+//        callback : UnityBiometricCallback
+//    ) {
+//        if (!hasSecretKeyValid(keyName)) {
+//            callback.onFailure("KEY INVALID")
+//            return
+//        }
+//
+//        // get saved ciphertext
+//        val ciphertextWrapper = cryptographyManager.getCiphertextWrapperFromSharedPrefs(
+//            context, Constants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, keyName
+//        )
+//
+//        if (ciphertextWrapper == null) {
+//            callback.onFailure("NO CIPHERTEXT")
+//            return
+//        }
+//
+//        // create cipher for decryption (only use when biometric success)
+//        val decryptionCipher = try {
+//            cryptographyManager.getInitCipherForDecrypt(keyName, ciphertextWrapper.initVector)
+//        } catch (e: Exception) {
+//            callback.onFailure("INIT CIPHER_FAIL")
+//            return
+//        }
+//
+//        //  create BiometricPrompt
+//        val biometricPrompt = BiometricPromptUtils.createBiometricPrompt(activity) { result ->
+//            val authenticatedCipher = result.cryptoObject?.cipher
+//            if (authenticatedCipher == null) {
+//                callback.onFailure("NO CRYPTO")
+//                return@createBiometricPrompt
+//            }
+//
+//            try {
+//                val data = cryptographyManager.decryptData(
+//                    ciphertextWrapper.ciphertext,
+//                    authenticatedCipher
+//                )
+//                callback.onSuccess(data)
+//            } catch (e: Exception) {
+//                callback.onFailure("DECRYPT FAIL : ${e.message}")
+//            }
+//        }
+//
+//        // show dialog
+//        val promptInfo = BiometricPromptUtils.createPromptInfo(
+//            title = "Login with biometrics",
+//            negative = "cancel"
+//        )
+//
+//        try {
+//            biometricPrompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(decryptionCipher))
+//        } catch (e: Exception) {
+//            callback.onFailure("Can not turn on biometric Prompt : ${e.message}")
+//        }
+//    }
+
+    fun requestSecureData(
+        keyName: String,
         activity: FragmentActivity,
-        onSuccess: (String) -> Unit,
-        onFailure: (String) -> Unit
+        callback: UnityBiometricCallback
     ) {
-        if (!hasValidKeyAndToken()) {
-            onFailure("Failure = not valid ")
+        if (!hasSecretKeyValid(keyName)) {
+            callback.onFailure("KEY INVALID")
             return
         }
 
-        // 2. Lấy ciphertext đã lưu
+        // Lấy dữ liệu đã mã hóa từ SharedPreferences
         val ciphertextWrapper = cryptographyManager.getCiphertextWrapperFromSharedPrefs(
-            context, Constants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, Constants.CIPHERTEXT_WRAPPER
+            context, Constants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, keyName
         )
 
-        if (ciphertextWrapper == null) {
-            onFailure("Failer  cipher text wrapper = null")
-            return
-        }
-
-        // 3. Tạo cipher để giải mã (chỉ dùng được sau khi xác thực sinh trắc học)
-        val decryptionCipher = try {
-            cryptographyManager.getInitCipherForDecrypt(Constants.KEY_NAME, ciphertextWrapper.initVector)
-        } catch (e: Exception) {
-            onFailure("decrypt fail")
-            return
-        }
-
-        // 4. Tạo BiometricPrompt
-        val biometricPrompt = BiometricPromptUtils.createBiometricPrompt(activity) { result ->
-            val authenticatedCipher = result.cryptoObject?.cipher
-            if (authenticatedCipher == null) {
-                onFailure("fail")
-                return@createBiometricPrompt
+        // ÉP TOÀN BỘ PHẦN HIỆN BIOMETRIC PROMPT CHẠY TRÊN MAIN THREAD
+        activity.runOnUiThread {
+            if (ciphertextWrapper == null) {
+                callback.onFailure("NO CIPHERTEXT")  // Chưa lưu dữ liệu lần nào
+                return@runOnUiThread
             }
 
-            try {
-                val decryptedToken = cryptographyManager.decryptData(
-                    ciphertextWrapper.ciphertext,
-                    authenticatedCipher
-                )
-                onSuccess(decryptedToken)
+            // Tạo cipher để decrypt (chỉ dùng khi biometric thành công)
+            val decryptionCipher = try {
+                cryptographyManager.getInitCipherForDecrypt(keyName, ciphertextWrapper.initVector)
             } catch (e: Exception) {
-                onFailure("decryption fail : ${e.message}")
+                callback.onFailure("INIT CIPHER_FAIL: ${e.message}")
+                return@runOnUiThread
             }
-        }
 
-        // 5. Hiển thị dialog
-        val promptInfo = BiometricPromptUtils.createPromptInfo(
-            title = "Login with biometrics",
-            negative = "cancel"
-        )
+            // Tạo BiometricPrompt
+            val biometricPrompt = BiometricPromptUtils.createBiometricPrompt(activity) { result ->
+                val authenticatedCipher = result.cryptoObject?.cipher
+                if (authenticatedCipher == null) {
+                    callback.onFailure("NO CRYPTO")
+                    return@createBiometricPrompt
+                }
 
-        try {
-            biometricPrompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(decryptionCipher))
-        } catch (e: Exception) {
-            onFailure("Không thể hiển thị xác thực sinh trắc học")
+                try {
+                    val data = cryptographyManager.decryptData(
+                        ciphertextWrapper.ciphertext,
+                        authenticatedCipher
+                    )
+                    callback.onSuccess(data)
+                } catch (e: Exception) {
+                    callback.onFailure("DECRYPT FAIL: ${e.message}")
+                }
+            }
+
+            // Tạo thông tin dialog
+            val promptInfo = BiometricPromptUtils.createPromptInfo(
+                title = "Login with biometrics",
+                negative = "Cancel"
+            )
+
+            // Hiện dialog biometric
+            try {
+                biometricPrompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(decryptionCipher))
+            } catch (e: Exception) {
+                callback.onFailure("Can not turn on biometric Prompt: ${e.message}")
+            }
         }
     }
 

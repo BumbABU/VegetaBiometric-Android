@@ -12,7 +12,4 @@ object Constants
     public const val ENCRYPTION_ALGORITHM = KeyProperties.KEY_ALGORITHM_AES
 
     public const val  SHARED_PREFS_FILENAME = "biometric_prefs"
-    public const val CIPHERTEXT_WRAPPER = "ciphertext_wrapper"
-    public const val KEY_NAME = "biometric_key"
-
 }
