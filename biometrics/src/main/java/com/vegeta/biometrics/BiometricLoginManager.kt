@@ -74,6 +74,10 @@ class BiometricLoginManager (private  val context : Context)
         return true
     }
 
+    fun hasSecretKey(keyName : String): Boolean {
+        return cryptographyManager.hasKey((keyName))
+    }
+
     fun persistSecureData(keyName: String, data: String) {
         val cipher = cryptographyManager.getInitCipherForEncrypt(keyName)
         val ciphertextWrapper = cryptographyManager.encryptData(data, cipher)
@@ -81,66 +85,6 @@ class BiometricLoginManager (private  val context : Context)
             ciphertextWrapper, context, Constants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, keyName
         )
     }
-
-//    fun requestSecureData(
-//        keyName : String,
-//        activity: FragmentActivity,
-//        callback : UnityBiometricCallback
-//    ) {
-//        if (!hasSecretKeyValid(keyName)) {
-//            callback.onFailure("KEY INVALID")
-//            return
-//        }
-//
-//        // get saved ciphertext
-//        val ciphertextWrapper = cryptographyManager.getCiphertextWrapperFromSharedPrefs(
-//            context, Constants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, keyName
-//        )
-//
-//        if (ciphertextWrapper == null) {
-//            callback.onFailure("NO CIPHERTEXT")
-//            return
-//        }
-//
-//        // create cipher for decryption (only use when biometric success)
-//        val decryptionCipher = try {
-//            cryptographyManager.getInitCipherForDecrypt(keyName, ciphertextWrapper.initVector)
-//        } catch (e: Exception) {
-//            callback.onFailure("INIT CIPHER_FAIL")
-//            return
-//        }
-//
-//        //  create BiometricPrompt
-//        val biometricPrompt = BiometricPromptUtils.createBiometricPrompt(activity) { result ->
-//            val authenticatedCipher = result.cryptoObject?.cipher
-//            if (authenticatedCipher == null) {
-//                callback.onFailure("NO CRYPTO")
-//                return@createBiometricPrompt
-//            }
-//
-//            try {
-//                val data = cryptographyManager.decryptData(
-//                    ciphertextWrapper.ciphertext,
-//                    authenticatedCipher
-//                )
-//                callback.onSuccess(data)
-//            } catch (e: Exception) {
-//                callback.onFailure("DECRYPT FAIL : ${e.message}")
-//            }
-//        }
-//
-//        // show dialog
-//        val promptInfo = BiometricPromptUtils.createPromptInfo(
-//            title = "Login with biometrics",
-//            negative = "cancel"
-//        )
-//
-//        try {
-//            biometricPrompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(decryptionCipher))
-//        } catch (e: Exception) {
-//            callback.onFailure("Can not turn on biometric Prompt : ${e.message}")
-//        }
-//    }
 
     fun requestSecureData(
         keyName: String,

@@ -39,6 +39,8 @@ interface CryptographyManager
     ): CiphertextWrapper?
 
     fun hasKeyValid (keyName: String) : Boolean
+
+    fun hasKey (keyName: String) : Boolean
 }
 
 fun CryptographyManager(): CryptographyManager = CryptographyManagerImpl()
@@ -187,6 +189,12 @@ private class CryptographyManagerImpl : CryptographyManager
         } catch (e: Exception) {
             false
         }
+    }
+
+    public override fun hasKey(keyName: String): Boolean {
+        val  keyStore = KeyStore.getInstance(Constants.ANDROID_KEYSTORE)
+        keyStore.load(null)
+        return keyStore.containsAlias(keyName)
     }
 }
 
