@@ -10,13 +10,15 @@ object BiometricPromptUtils {
 
     fun createBiometricPrompt(
         activity: FragmentActivity,
-        processSuccess: (BiometricPrompt.AuthenticationResult) -> Unit
+        onSuccess: (BiometricPrompt.AuthenticationResult) -> Unit,
+        onError : (Int, CharSequence) -> Unit,
     ): BiometricPrompt {
         val executor = ContextCompat.getMainExecutor(activity)
 
         val callback = object : BiometricPrompt.AuthenticationCallback() {
 
             override fun onAuthenticationError(errCode: Int, errString: CharSequence) {
+                onError(errCode, errString)
                 super.onAuthenticationError(errCode, errString)
             }
 
@@ -25,8 +27,8 @@ object BiometricPromptUtils {
             }
 
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                onSuccess(result)
                 super.onAuthenticationSucceeded(result)
-                processSuccess(result)
             }
         }
         return BiometricPrompt(activity, executor, callback)

@@ -13,6 +13,13 @@ import javax.crypto.spec.GCMParameterSpec
 import com.google.gson.Gson
 import androidx.core.content.edit
 
+
+object KeyState {
+    const val NonExist = 0
+    const val InValid = 1
+    const val Valid = 2
+}
+
 interface CryptographyManager
 {
     fun getInitCipherForEncrypt (keyName : String) : Cipher
@@ -38,9 +45,7 @@ interface CryptographyManager
         prefKey: String
     ): CiphertextWrapper?
 
-    fun hasKeyValid (keyName: String) : Boolean
-
-    fun hasKey (keyName: String) : Boolean
+    fun getKeyState (keyName: String) : Int
 }
 
 fun CryptographyManager(): CryptographyManager = CryptographyManagerImpl()
@@ -159,7 +164,7 @@ private class CryptographyManagerImpl : CryptographyManager
             setEncryptionPaddings(Constants.ENCRYPTION_PADDING)
             setKeySize(Constants.KEY_SIZE)
             setUserAuthenticationRequired(false)  // Key unlock only biometrics vetification success
-            // setInvalidatedByBiometricEnrollment(true) // SecretKey automatically invalid when biometrics update ,...
+            setInvalidatedByBiometricEnrollment(true) // SecretKey automatically invalid when biometrics update ,...
             //
         }
 
@@ -173,28 +178,20 @@ private class CryptographyManagerImpl : CryptographyManager
         return keyGenerator.generateKey()
     }
 
-    public override fun hasKeyValid (keyName: String) : Boolean {
+    public override fun getKeyState(keyName: String): Int {
         val keyStore = KeyStore.getInstance(Constants.ANDROID_KEYSTORE)
         keyStore.load(null)
+        if(!keyStore.containsAlias(keyName)) return KeyState.NonExist
 
-        if(!keyStore.containsAlias(keyName)) return false
-
-        /* Try convert to SecretKey if null or can not convert return false */
-        val secretKey = keyStore.getKey(keyName, null) as? SecretKey ?: return false
+        val secretKey = keyStore.getKey(keyName, null) as? SecretKey ?: return KeyState.InValid
 
         return try {
             val cipher = getCipher()
             cipher.init(Cipher.ENCRYPT_MODE, secretKey)
-            true
+             KeyState.Valid
         } catch (e: Exception) {
-            false
+             KeyState.InValid
         }
-    }
-
-    public override fun hasKey(keyName: String): Boolean {
-        val  keyStore = KeyStore.getInstance(Constants.ANDROID_KEYSTORE)
-        keyStore.load(null)
-        return keyStore.containsAlias(keyName)
     }
 }
 
