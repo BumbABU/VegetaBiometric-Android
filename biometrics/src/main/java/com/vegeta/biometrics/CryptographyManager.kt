@@ -22,7 +22,7 @@ object KeyState {
 
 interface CryptographyManager
 {
-    fun getInitCipherForEncrypt (keyName : String) : Cipher
+    fun getInitCipherForEncrypt (keyName : String, inValidEnroll: Boolean) : Cipher
 
     fun getInitCipherForDecrypt (keyName: String, initializationVector: ByteArray) : Cipher
 
@@ -52,10 +52,10 @@ fun CryptographyManager(): CryptographyManager = CryptographyManagerImpl()
 
 private class CryptographyManagerImpl : CryptographyManager
 {
-    public override fun getInitCipherForEncrypt(keyName: String): Cipher
+    public override fun getInitCipherForEncrypt(keyName: String, inValidEnroll: Boolean): Cipher
     {
         val cipher = getCipher()
-        val secretKey =  getOrCreateSecretKey(keyName)
+        val secretKey =  getOrCreateSecretKey(keyName, inValidEnroll)
         cipher.init(Cipher.ENCRYPT_MODE, secretKey)
         return cipher
     }
@@ -63,7 +63,7 @@ private class CryptographyManagerImpl : CryptographyManager
     public override fun getInitCipherForDecrypt(keyName: String, initializationVector: ByteArray): Cipher
     {
         val cipher = getCipher()
-        val secretKey = getOrCreateSecretKey(keyName)
+        val secretKey = getSecretKey(keyName) ?: throw Exception("Key does not exist")
         cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(128, initializationVector))
         return cipher
     }
@@ -91,8 +91,6 @@ private class CryptographyManagerImpl : CryptographyManager
         prefKey: String
     )
     {
-//        val json = Gson().toJson(ciphertextWrapper)
-//        context.getSharedPreferences(filename, mode).edit { putString(prefKey, json) }
         val prefs = context.getSharedPreferences(filename, mode)
         prefs.edit()
             .putString("${prefKey}_ciphertext", Base64.encodeToString(ciphertextWrapper.ciphertext, Base64.DEFAULT))
@@ -107,8 +105,6 @@ private class CryptographyManagerImpl : CryptographyManager
         prefKey: String
     ): CiphertextWrapper?
     {
-//        val json = context.getSharedPreferences(filename, mode).getString(prefKey, null)
-//        return Gson().fromJson(json, CiphertextWrapper::class.java)
         val prefs = context.getSharedPreferences(filename, mode)
         val ciphertextStr = prefs.getString("${prefKey}_ciphertext", null) ?: return null
         val ivStr = prefs.getString("${prefKey}_iv", null) ?: return null
@@ -127,70 +123,62 @@ private class CryptographyManagerImpl : CryptographyManager
         return Cipher.getInstance(transformation)
     }
 
-    private fun getOrCreateSecretKey(keyName: String): SecretKey
+    private  fun getSecretKey(keyName: String) : SecretKey? {
+        val keyStore = KeyStore.getInstance(Constants.ANDROID_KEYSTORE)
+        keyStore.load(null) // Keystore must be loaded before it can be accessed
+        return keyStore.getKey(keyName, null) as? SecretKey
+    }
+
+    private fun getOrCreateSecretKey(keyName: String, inValidEnroll : Boolean = true): SecretKey
     {
         // If SecretKey was previously created for that keyName, then grab and return it.
 
         val keyStore = KeyStore.getInstance(Constants.ANDROID_KEYSTORE)
         keyStore.load(null) // Keystore must be loaded before it can be accessed
 
-        if (keyStore.containsAlias(keyName)) {
-            val existingKey = keyStore.getKey(keyName, null) as? SecretKey
-            if (existingKey != null) {
-                // Thử init cipher để check key có dùng được không
-                try {
-                    val testCipher = getCipher()
-                    testCipher.init(Cipher.ENCRYPT_MODE, existingKey)
-                    testCipher.doFinal("test".toByteArray(Charset.forName("UTF-8")))
-                    return existingKey // Key cũ vẫn tốt → dùng tiếp
-                } catch (e: Exception) {
-                    // Key cũ bị invalid (do required=true hoặc bị invalidate) → xóa đi
-                    keyStore.deleteEntry(keyName)
-                }
-            } else {
+        val existingKey = getSecretKey(keyName)
+
+        if(existingKey != null) {
+            return try {
+                val cipher = getCipher()
+                cipher.init(Cipher.ENCRYPT_MODE, existingKey)
+                existingKey
+            } catch (e: Exception) {
+                // Key invalid delete to create new one
                 keyStore.deleteEntry(keyName)
-            }
+                null
+            } ?: createSecretKey(keyName, inValidEnroll)
         }
 
-        // keyStore.getKey(keyName, null)?.let { return it as SecretKey }
+        // if key not exist create new one
+        return createSecretKey(keyName, inValidEnroll)
+    }
 
-        // if you reach here, then a new SecretKey must be generated for that keyName
-        val paramsBuilder = KeyGenParameterSpec.Builder(
+    private fun createSecretKey(keyName: String , inValidEnroll : Boolean = true): SecretKey {
+        val keyGenParams = KeyGenParameterSpec.Builder(
             keyName,
             KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
         )
-        paramsBuilder.apply {
-            setBlockModes(Constants.ENCRYPTION_BLOCK_MODE)
-            setEncryptionPaddings(Constants.ENCRYPTION_PADDING)
-            setKeySize(Constants.KEY_SIZE)
-            setUserAuthenticationRequired(false)  // Key unlock only biometrics vetification success
-            setInvalidatedByBiometricEnrollment(true) // SecretKey automatically invalid when biometrics update ,...
-            //
-        }
+            .setBlockModes(Constants.ENCRYPTION_BLOCK_MODE)
+            .setEncryptionPaddings(Constants.ENCRYPTION_PADDING)
+            .setKeySize(Constants.KEY_SIZE)
+            .setUserAuthenticationRequired(true)
+            .setInvalidatedByBiometricEnrollment(inValidEnroll)
+            .build()
 
-        val keyGenParams = paramsBuilder.build()
-        val keyGenerator = KeyGenerator.getInstance(
-            Constants.ENCRYPTION_ALGORITHM,
-            Constants.ANDROID_KEYSTORE
-        )
-
+        val keyGenerator = KeyGenerator.getInstance(Constants.ENCRYPTION_ALGORITHM, Constants.ANDROID_KEYSTORE)
         keyGenerator.init(keyGenParams)
         return keyGenerator.generateKey()
     }
 
     public override fun getKeyState(keyName: String): Int {
-        val keyStore = KeyStore.getInstance(Constants.ANDROID_KEYSTORE)
-        keyStore.load(null)
-        if(!keyStore.containsAlias(keyName)) return KeyState.NonExist
-
-        val secretKey = keyStore.getKey(keyName, null) as? SecretKey ?: return KeyState.InValid
-
+        val secretKey = getSecretKey(keyName) ?: return KeyState.NonExist
         return try {
             val cipher = getCipher()
             cipher.init(Cipher.ENCRYPT_MODE, secretKey)
-             KeyState.Valid
+            KeyState.Valid
         } catch (e: Exception) {
-             KeyState.InValid
+            KeyState.InValid
         }
     }
 }

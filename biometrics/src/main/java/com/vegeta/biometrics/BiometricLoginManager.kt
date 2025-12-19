@@ -66,24 +66,25 @@ class BiometricLoginManager (private  val context : Context)
         return keyState
     }
 
-    fun persistSecureData(keyName: String, data: String) {
-        val cipher = cryptographyManager.getInitCipherForEncrypt(keyName)
-        val ciphertextWrapper = cryptographyManager.encryptData(data, cipher)
-        cryptographyManager.persistCiphertextWrapperToSharedPrefs(
-            ciphertextWrapper, context, Constants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, keyName
-        )
-    }
+//    fun persistSecureData(keyName: String, data: String) {
+//        val cipher = cryptographyManager.getInitCipherForEncrypt(keyName)
+//        val ciphertextWrapper = cryptographyManager.encryptData(data, cipher)
+//        cryptographyManager.persistCiphertextWrapperToSharedPrefs(
+//            ciphertextWrapper, context, Constants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, keyName
+//        )
+//    }
 
     fun persistSecureDataWithBiometric(
         keyName: String,
         data: String,
         activity: FragmentActivity,
-        callback: UnityBiometricCallback) {
+        callback: UnityBiometricCallback,
+        inValidEnroll : Boolean) {
 
         val cipher = try {
-            cryptographyManager.getInitCipherForEncrypt(keyName)
+            cryptographyManager.getInitCipherForEncrypt(keyName, inValidEnroll)
         } catch (e : Exception) {
-            callback.onFailure(ErrCode.INTERNAL, "${ErrString.INTERNAL} : ${e.message}")
+            callback.onFailure(ErrCode.INTERNAL, "${ErrString.INTERNAL} 1 : ${e.message}")
             return
         }
 
@@ -115,7 +116,7 @@ class BiometricLoginManager (private  val context : Context)
                     } catch (e: Exception) {
                         callback.onFailure(
                             ErrCode.INTERNAL,
-                            "${ErrString.INTERNAL} : ${e.message}"
+                            "${ErrString.INTERNAL} 2 : ${e.message}"
                         )
                     }
 
@@ -189,16 +190,16 @@ class BiometricLoginManager (private  val context : Context)
             context, Constants.SHARED_PREFS_FILENAME, Context.MODE_PRIVATE, keyName
         )
 
-        activity.runOnUiThread {
-            if (ciphertextWrapper == null) {
-                callback.onFailure(ErrCode.NO_DATA, ErrString.NO_DATA)
-                return@runOnUiThread
-            }
+        if (ciphertextWrapper == null) {
+            callback.onFailure(ErrCode.NO_DATA, ErrString.NO_DATA)
+            return
+        }
 
+        activity.runOnUiThread {
             val decryptionCipher = try {
                 cryptographyManager.getInitCipherForDecrypt(keyName, ciphertextWrapper.initVector)
             } catch (e: Exception) {
-                callback.onFailure(ErrCode.INTERNAL,"${ErrString.INTERNAL} : ${e.message}")
+                callback.onFailure(ErrCode.INTERNAL,"${ErrString.INTERNAL} 3 : ${e.message}")
                 return@runOnUiThread
             }
 
@@ -219,7 +220,7 @@ class BiometricLoginManager (private  val context : Context)
                         )
                         callback.onSuccess(data)
                     } catch (e: Exception) {
-                        callback.onFailure(ErrCode.INTERNAL,"${ErrString.INTERNAL} : ${e.message}")
+                        callback.onFailure(ErrCode.INTERNAL,"${ErrString.INTERNAL} 4 : ${e.message}")
                     }
                 },
                 onError = { code, msg ->
