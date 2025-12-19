@@ -12,8 +12,8 @@ object  ErrCode {
     const val KEY_NOT_EXIST = 1
     const val KEY_INVALID = 2
     const val NO_DATA = 3
-    const val CANCELED = 11
-    const val LOCKED = 12
+    const val CANCELED = 4
+    const val LOCKED = 5
     const val OTHER = 99
     const val  INTERNAL = 100
 }
